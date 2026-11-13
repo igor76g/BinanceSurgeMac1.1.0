@@ -1,0 +1,50 @@
+name: Build macOS app
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: apple-silicon
+          - runner: macos-15-intel
+            arch: intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check that tkinter is available
+        run: python -c "import tkinter; print('Tk version', tkinter.TkVersion)"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build app with PyInstaller
+        run: pyinstaller --noconfirm --windowed --name BinanceSurgeMonitor --osx-bundle-identifier com.example.binancesurgemonitor run.py
+
+      - name: Ad-hoc code signing
+        run: codesign --force --deep --sign - dist/BinanceSurgeMonitor.app
+
+      - name: Create DMG
+        run: |
+          mkdir dmg_src
+          cp -R dist/BinanceSurgeMonitor.app dmg_src/
+          ln -s /Applications dmg_src/Applications
+          hdiutil create -volname "Binance Surge Monitor" -srcfolder dmg_src -ov -format UDZO "BinanceSurgeMonitor-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BinanceSurgeMonitor-mac-${{ matrix.arch }}
+          path: BinanceSurgeMonitor-${{ matrix.arch }}.dmg
